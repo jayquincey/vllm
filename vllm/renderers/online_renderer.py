@@ -76,6 +76,7 @@ class OnlineRenderer:
         reasoning_parser: str | None = None,
         default_chat_template_kwargs: dict[str, Any] | None = None,
         log_error_stack: bool = False,
+        log_templated_prompt: bool = False,
     ) -> None:
         self.model_config = model_config
         self.renderer = renderer
@@ -102,6 +103,7 @@ class OnlineRenderer:
         self.trust_request_chat_template = trust_request_chat_template
 
         self.log_error_stack = log_error_stack
+        self.log_templated_prompt = log_templated_prompt
         self.supports_browsing = False
         self.supports_code_interpreter = False
 
@@ -392,6 +394,7 @@ class OnlineRenderer:
             default_template_kwargs,
             default_media_io_kwargs=(mm_config.media_io_kwargs if mm_config else None),
             default_mm_processor_kwargs=getattr(request, "mm_processor_kwargs", None),
+            log_templated_prompt=self.log_templated_prompt,
         )
 
         reuse_ids = _reused_prompt_token_ids(request)

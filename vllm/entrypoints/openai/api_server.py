@@ -425,6 +425,7 @@ async def init_app_state(
         reasoning_parser=args.structured_outputs_config.reasoning_parser,
         default_chat_template_kwargs=args.default_chat_template_kwargs,
         log_error_stack=args.log_error_stack,
+        log_templated_prompt=args.log_templated_prompt,
     )
 
     state.online_derenderer = OnlineDerenderer(
