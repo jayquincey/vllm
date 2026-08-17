@@ -145,7 +145,7 @@ class BaseFrontendArgs:
     Requires `--enable-log-requests`. As with `--enable-log-requests`,
     information is only logged at INFO level at maximum."""
     enable_log_deltas: bool = True
-    """If set to False, output deltas will not be logged. Relevant only if 
+    """If set to False, output deltas will not be logged. Relevant only if
     --enable-log-outputs is set.
     """
     cohere_is_reasoning_model: bool = True
@@ -167,6 +167,10 @@ class BaseFrontendArgs:
     ``--default-chat-template-kwargs '{"cohere_format": "..."}'`` -- any
     explicit request-level ``chat_template_kwargs.cohere_format`` takes
     priority."""
+    log_templated_prompt: bool = False
+    """If set to True, log the full templated prompt (after chat template
+    processing) for every chat request. Useful for debugging template
+    behavior. Logs at INFO level."""
     log_error_stack: bool = envs.VLLM_SERVER_DEV_MODE
     """If set to True, log the stack trace of error responses"""
     tokens_only: bool = False
