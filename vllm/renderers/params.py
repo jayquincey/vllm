@@ -108,16 +108,21 @@ class ChatParams:
     response_format: Any | None = None
     """Request-level response format for renderers that need API metadata."""
 
+    log_templated_prompt: bool = False
+    """If True, log the templated prompt text after chat template processing."""
+
     def with_defaults(
         self,
         default_chat_template_kwargs: dict[str, Any] | None = None,
         default_media_io_kwargs: dict[str, dict[str, Any]] | None = None,
         default_mm_processor_kwargs: dict[str, Any] | None = None,
+        log_templated_prompt: bool = False,
     ):
         if (
             not default_chat_template_kwargs
             and not default_media_io_kwargs
             and not default_mm_processor_kwargs
+            and not log_templated_prompt
         ):
             return self
 
@@ -139,6 +144,7 @@ class ChatParams:
             return_assistant_tokens_mask=self.return_assistant_tokens_mask,
             tool_choice=self.tool_choice,
             response_format=self.response_format,
+            log_templated_prompt=log_templated_prompt,
         )
 
     def get_apply_chat_template_kwargs(self) -> dict[str, Any]:

@@ -1081,6 +1081,17 @@ class HfRenderer(BaseRenderer[HfTokenizer]):
                 **chat_template_kwargs,
             )
 
+        if params.log_templated_prompt:
+            templated_text = (
+                tokenizer.decode(prompt_raw)
+                if isinstance(prompt_raw, list)
+                else prompt_raw
+            )
+            logger.info(
+                "=== Templated Prompt ===\n%s\n=== End Templated Prompt ===",
+                templated_text,
+            )
+
         # NOTE: use_unified_vision_chunk is currently specific to Kimi-K2.5
         # model which uses unified vision chunks for both images and videos.
         if (
@@ -1204,6 +1215,17 @@ class HfRenderer(BaseRenderer[HfTokenizer]):
                 tokenizer,
                 conversation,
                 **chat_template_kwargs,
+            )
+
+        if params.log_templated_prompt:
+            templated_text = (
+                tokenizer.decode(prompt_raw)
+                if isinstance(prompt_raw, list)
+                else prompt_raw
+            )
+            logger.info(
+                "=== Templated Prompt ===\n%s\n=== End Templated Prompt ===",
+                templated_text,
             )
 
         # NOTE: use_unified_vision_chunk is currently specific to Kimi-K2.5
