@@ -2034,7 +2034,7 @@ def _annotate_eagle_groups(
 ) -> None:
     """Flag the KV cache groups that hold drafter attention layers.
 
-    Two detection rules, in order of preference:
+    Three detection rules, in order of preference:
 
     1. Spec-driven. ``non_causal_multi_token_decode`` is declared on
        MLAAttentionSpec and set by drafter attention layers that run a
@@ -2052,6 +2052,14 @@ def _annotate_eagle_groups(
        When a drafter's trailing caches span several groups, this rule flags
        only the group holding the very last layer and must be generalized.
        FIXME(yifan): avoid/generalize this hacky check.
+    3. Drafter-prefix fallback for separately built MTP drafters that
+       register their layers under a distinct top-level module prefix after
+       the target's (e.g. "mtp." after "model."). Flags every group holding
+       such a layer, covering drafters whose trailing caches span several
+       groups. MTP-only, and like rule 2 it requires the groups to
+       partition the layers exactly; it is also skipped when a prior rule
+       already flagged a group, when all layers share one prefix, or when
+       more than two prefixes appear in registration order.
 
     Args:
         vllm_config: Config supplying the speculative method, if any.
@@ -2073,15 +2081,50 @@ def _annotate_eagle_groups(
         ):
             group.is_eagle_group = True
 
-    if not use_trailing_layer_fallback:
+    if use_trailing_layer_fallback and _groups_partition_layers_exactly(
+        kv_cache_spec, kv_cache_groups
+    ):
+        last_layer = next(reversed(kv_cache_spec))
+        for group in kv_cache_groups:
+            if last_layer in group.layer_names:
+                group.is_eagle_group = True
+                break
+
+    # 3. Drafter-prefix positional fallback. A separately built MTP drafter
+    #    (e.g. Qwen4ExpMTP under "mtp.") registers its layers after the
+    #    target's, under a different top-level module prefix. Every group
+    #    holding one of those layers is a draft group; the rest, notably
+    #    the Mamba groups, are not, so they keep serving prefix hits. Left
+    #    unflagged, the coordinator treats every group as a draft group and
+    #    cross-request reuse silently drops to zero. Only MTP drafters are
+    #    eligible: other drafters that stay unidentifiable must keep the
+    #    conservative all-groups behaviour (and its warning). Drafters that
+    #    reuse the target's prefix (EAGLE heads) are not detected here.
+    if spec_config.method != "mtp":
         return
     if not _groups_partition_layers_exactly(kv_cache_spec, kv_cache_groups):
         return
-    last_layer = next(reversed(kv_cache_spec))
+    if any(group.is_eagle_group for group in kv_cache_groups):
+        return
+    names = list(kv_cache_spec)
+    if len(names) < 2:
+        return
+    first_prefix = names[0].split(".", 1)[0]
+    drafter_prefix = names[-1].split(".", 1)[0]
+    if drafter_prefix == first_prefix:
+        return
+    drafter_layers = {
+        name for name in names if name.split(".", 1)[0] == drafter_prefix
+    }
+    if any(
+        name.split(".", 1)[0] != first_prefix
+        for name in names[: -len(drafter_layers)]
+    ):
+        # More than two module prefixes in registration order: ambiguous.
+        return
     for group in kv_cache_groups:
-        if last_layer in group.layer_names:
+        if drafter_layers.intersection(group.layer_names):
             group.is_eagle_group = True
-            break
 
 
 def _warn_if_unannotated_eagle_mamba(
@@ -2096,7 +2139,11 @@ def _warn_if_unannotated_eagle_mamba(
 
     """
     spec_config = vllm_config.speculative_config
-    if spec_config is None or not spec_config.use_eagle():
+    # The all-groups fallback only exists while the trailing-block drop is
+    # on (KVCacheManager receives use_eagle=use_eagle_block_drop()); with
+    # --speculative-config disable_eagle_block_drop no group is a draft group
+    # and reuse works, so there is nothing to warn about.
+    if spec_config is None or not spec_config.use_eagle_block_drop():
         return
     if any(group.is_eagle_group for group in kv_cache_groups):
         return
