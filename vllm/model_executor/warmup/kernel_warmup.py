@@ -314,8 +314,7 @@ def _flashinfer_autotune_skip_ops(runner: "GPUModelRunner") -> set[str] | None:
 def _flashinfer_autotune_logits_gemm(
     runner: "GPUModelRunner", skip_ops: set[str] | None
 ) -> None:
-    """
-    Autotune the final logits projection GEMM, which the dummy run never
+    """Autotune the final logits projection GEMM, which the dummy run never
     executes. The profile dummy forward ends at the last hidden state, so
     the lm_head GEMM shape family (M x hidden) x (hidden x vocab) is
     missing from the FlashInfer autotune cache and every decode step of an
