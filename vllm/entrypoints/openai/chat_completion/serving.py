@@ -2,12 +2,16 @@
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
 import asyncio
+import json
+import os
 import time
+import uuid
 from collections.abc import AsyncGenerator, AsyncIterator
 from collections.abc import Sequence as GenericSequence
 from http import HTTPStatus
 from typing import Any, Final, cast
 
+import msgspec
 from fastapi import Request
 
 from vllm.engine.protocol import EngineClient
@@ -65,6 +69,60 @@ from vllm.utils.collection_utils import as_list
 from vllm.utils.serial_utils import numpy2base64
 
 logger = init_logger(__name__)
+
+# Local debug aid (not for upstream): while this marker file exists on disk,
+# every chat-completion request dumps its fully-resolved parameters plus the
+# templated prompt to a self-contained file that can be opened or diffed
+# directly (no log prefixes to strip). Toggled at runtime with no restart.
+_PROMPT_DUMP_DIR = os.path.expanduser("~/dev/ops/vllm2/prompt-dumps")
+_LOG_TEMPLATED_PROMPT_FILE = os.path.expanduser("~/dev/ops/vllm2/log-templated-prompt")
+
+
+def _prompt_dump_enabled() -> bool:
+    return os.path.exists(_LOG_TEMPLATED_PROMPT_FILE)
+
+
+def _dump_request(
+    request_id: str,
+    model_name: str | None,
+    sampling_params: SamplingParams | BeamSearchParams,
+    chat_template_kwargs: dict[str, Any],
+    prompt_text: str,
+) -> str | None:
+    """Write the resolved request params and templated prompt to one file.
+
+    The params are the fully-resolved values actually sent to the engine
+    (client request + server defaults + config overrides), so the same set is
+    recorded regardless of where each value came from. Returns the file path,
+    or None on failure (the error is logged, not raised).
+    """
+    try:
+        os.makedirs(_PROMPT_DUMP_DIR, exist_ok=True)
+        name = (
+            f"{time.strftime('%Y%m%d-%H%M%S')}-{os.getpid()}-{uuid.uuid4().hex[:8]}.txt"
+        )
+        path = os.path.join(_PROMPT_DUMP_DIR, name)
+        raw_params = msgspec.structs.asdict(sampling_params)
+        params_block = {
+            "request_id": request_id,
+            "model": model_name,
+            "sampling_params": {
+                k: v for k, v in raw_params.items() if not k.startswith("_")
+            },
+            "chat_template_kwargs": chat_template_kwargs,
+        }
+        with open(path, "w") as fh:
+            fh.write(
+                "# ==== RESOLVED REQUEST PARAMS (client + defaults + overrides) ====\n"
+            )
+            fh.write(json.dumps(params_block, indent=2, default=str))
+            fh.write("\n\n# ==== TEMPLATED PROMPT ====\n")
+            fh.write(prompt_text)
+            fh.write("\n")
+        return path
+    except Exception:
+        logger.exception("failed to write request params/prompt dump")
+        return None
 
 
 def _get_mm_token_counts(engine_input: EngineInput) -> dict[str, int]:
@@ -318,6 +376,23 @@ class OpenAIServingChat(GenerateBaseServing):
                 params=sampling_params,
                 lora_request=lora_request,
             )
+
+            if _prompt_dump_enabled():
+                prompt_token_ids = self._extract_prompt_components(
+                    engine_input
+                ).token_ids
+                prompt_text = (
+                    tokenizer.decode(prompt_token_ids) if prompt_token_ids else ""
+                )
+                dump_path = _dump_request(
+                    sub_request_id,
+                    model_name,
+                    sampling_params,
+                    chat_template_kwargs,
+                    prompt_text,
+                )
+                if dump_path is not None:
+                    logger.info("request params + prompt dumped to %s", dump_path)
 
             trace_headers = (
                 None

@@ -323,6 +323,16 @@ def build_app(
                 f"Invalid middleware {middleware}. Must be a function or a class."
             )
 
+    # Local hardening (not for upstream): answer only the paths in
+    # ALLOWED_PATHS; 404 everything else before auth or routing.
+    # Added last so it is the outermost middleware.
+    from vllm.entrypoints.serve.utils.server_utils import (
+        ALLOWED_PATHS,
+        EndpointAllowlistMiddleware,
+    )
+
+    app.add_middleware(EndpointAllowlistMiddleware, allowed_paths=ALLOWED_PATHS)
+
     app = sagemaker_standards_bootstrap(app)
     return app
 
