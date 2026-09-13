@@ -308,6 +308,76 @@ def _flashinfer_autotune_skip_ops(runner: "GPUModelRunner") -> set[str] | None:
     return None
 
 
+def _flashinfer_autotune_logits_gemm(
+    runner: "GPUModelRunner", skip_ops: set[str] | None
+) -> None:
+    """
+    Autotune the final logits projection GEMM, which the dummy run never
+    executes. The profile dummy forward ends at the last hidden state, so
+    the lm_head GEMM shape family (M x hidden) x (hidden x vocab) is
+    missing from the FlashInfer autotune cache and every decode step of an
+    FP4 model falls back to the CUTLASS heuristic tactic. Running the head
+    on small dummy batches inside the autotune context records tuned
+    configs for the decode batch sizes.
+
+    Local patch (not for upstream): the upstream autotune pass only tunes
+    GEMMs seen by the dummy transformer forward; without this, FP4 models
+    log "No tuned config covers fp4_gemm" on every decode of the head.
+    """
+    if skip_ops and "fp4_gemm" in skip_ops:
+        return
+
+    from vllm.model_executor.kernels.linear import (
+        FlashInferCuteDslNvFp4LinearKernel,
+        FlashInferCutlassNvFp4LinearKernel,
+    )
+    from vllm.model_executor.layers.vocab_parallel_embedding import (
+        ParallelLMHead,
+    )
+
+    model = runner.get_model()
+    if not hasattr(model, "compute_logits"):
+        return
+
+    kernel_cls = (
+        FlashInferCuteDslNvFp4LinearKernel,
+        FlashInferCutlassNvFp4LinearKernel,
+    )
+
+    def _is_flashinfer_nvfp4_head(module: torch.nn.Module) -> bool:
+        for holder in ("scheme", "quant_method"):
+            kernel = getattr(getattr(module, holder, None), "kernel", None)
+            if isinstance(kernel, kernel_cls):
+                return True
+        return False
+
+    head = next(
+        (
+            module
+            for module in model.modules()
+            if isinstance(module, ParallelLMHead) and _is_flashinfer_nvfp4_head(module)
+        ),
+        None,
+    )
+    hidden_size = getattr(head, "embedding_dim", None) if head is not None else None
+    if hidden_size is None:
+        return
+
+    m_values = tuple(
+        m
+        for m in (1, 2, 3, 4, 8, 16, 32, 64)
+        if m <= max(runner.scheduler_config.max_num_seqs, 8)
+    )
+    logger.info_once(
+        "Tuning FlashInfer FP4 logits GEMM for M=%s",
+        m_values,
+    )
+    dtype = runner.vllm_config.model_config.dtype
+    for m in m_values:
+        hidden = torch.randn((m, hidden_size), device=runner.device, dtype=dtype)
+        model.compute_logits(hidden)
+
+
 _FLASHINFER_BF16_AUTOTUNE_MAX_TOKENS = 32
 
 
@@ -470,6 +540,7 @@ def flashinfer_autotune(runner: "GPUModelRunner") -> None:
             _run_flashinfer_autotune_dummy_runs(runner, skip_attn=hisparse_enabled)
             replayssm_autotune_warmup(runner)
             _autotune_kimi_k3_kda_qkvg(runner.get_model())
+            _flashinfer_autotune_logits_gemm(runner, skip_ops)
         with torch.inference_mode():
             _run_flashinfer_bf16_autotune_dummy_run(
                 runner, skip_ops=skip_ops, skip_attn=hisparse_enabled
