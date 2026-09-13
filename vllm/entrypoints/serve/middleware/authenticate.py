@@ -8,7 +8,36 @@ from starlette.datastructures import Headers
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-GUARDED_PREFIX = ("/v1", "/v2", "/inference", "/cohere")
+GUARDED_PREFIX = ("/v1", "/v2", "/inference", "/cohere", "/metrics")
+
+# Local deployment hardening: the only HTTP paths the server answers.
+# Everything else gets 404 before auth or routing (EndpointAllowlistMiddleware,
+# registered in middleware/register.py). Local patch, not intended for upstream.
+ALLOWED_PATHS = frozenset({"/v1/chat/completions", "/v1/models", "/metrics"})
+
+
+class EndpointAllowlistMiddleware:
+    """Reject every HTTP path outside ALLOWED_PATHS with a plain 404.
+
+    Local hardening for the internet-facing deployment: shrinks the
+    service surface to the endpoints the configured clients use, so
+    /docs, /tokenize, /invocations, etc. no longer exist externally.
+    Registered outermost so it runs before authentication.
+    """
+
+    def __init__(self, app: ASGIApp, allowed_paths: frozenset[str]) -> None:
+        self.app = app
+        self.allowed_paths = allowed_paths
+
+    def __call__(self, scope: Scope, receive: Receive, send: Send) -> Awaitable[None]:
+        if scope["type"] not in ("http", "websocket"):
+            return self.app(scope, receive, send)
+        root_path = scope.get("root_path", "")
+        url_path = scope["path"].removeprefix(root_path)
+        if url_path not in self.allowed_paths:
+            response = JSONResponse(content={"error": "Not Found"}, status_code=404)
+            return response(scope, receive, send)
+        return self.app(scope, receive, send)
 
 
 class AuthenticationMiddleware:
