@@ -2638,14 +2638,18 @@ class FlashInferImpl(AttentionImpl):
             # actual tokens.
             if self.nvfp4_fa2:
                 data, scales, kv_layout = _nvfp4_kv_views(kv_cache, self.num_kv_heads)
+                if torch.cuda.is_current_stream_capturing():
+                    k_scale, v_scale = layer._k_scale, layer._v_scale
+                else:
+                    k_scale, v_scale = layer._k_scale_float, layer._v_scale_float
                 nvfp4_quantize_append_paged_kv_cache_with_slot_mapping(
                     key,
                     value,
                     slot_mapping,
                     data,
                     scales,
-                    layer._k_scale,
-                    layer._v_scale,
+                    k_scale,
+                    v_scale,
                     kv_layout=kv_layout,
                 )
                 return
