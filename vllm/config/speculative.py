@@ -614,7 +614,7 @@ class SpeculativeConfig:
     """For Qwen3 DSpark drafting, evaluate the Markov projection only for the
     top-k base-logit candidates. Requires draft tensor parallel size 1."""
 
-    def compute_hash(self) -> str:
+    def compute_hash(self, exclude: set[str] | frozenset[str] = frozenset()) -> str:
         """WARNING: Whenever a new field is added to this config,
         ensure that it is included in the factors list if
         it affects the computation graph.
@@ -624,6 +624,14 @@ class SpeculativeConfig:
         graph from input ids/embeddings to the final hidden states,
         excluding anything before input ids/embeddings and after
         the final hidden states.
+
+        Args:
+            exclude: Optional set of field names to omit from the
+                embedded model-config factors (see
+                ModelConfig.compute_hash). Intended for cache-key
+                consumers where a field is known not to affect the
+                cached artifacts.
+
         """
         factors: list[Any] = []
         # Eagle3 and extract_hidden_states affect the computation graph because
@@ -639,7 +647,7 @@ class SpeculativeConfig:
             factors.append(self.enable_adaptive_verification)
 
         if self.draft_model_config is not None:
-            factors.append(self.draft_model_config.compute_hash())
+            factors.append(self.draft_model_config.compute_hash(exclude=exclude))
             # The specific layers used also affect the computation graph.
             layer_ids = getattr(
                 self.draft_model_config.hf_config,

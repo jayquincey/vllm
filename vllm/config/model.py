@@ -450,7 +450,7 @@ class ModelConfig:
     mm_device_do_normalize: InitVar[bool | None] = None
     mm_processor_device: InitVar[MMProcessorDevice | None] = None
 
-    def compute_hash(self) -> str:
+    def compute_hash(self, exclude: set[str] | frozenset[str] = frozenset()) -> str:
         """WARNING: Whenever a new field is added to this config,
         ensure that it is included in the factors list if
         it affects the computation graph.
@@ -460,6 +460,14 @@ class ModelConfig:
         graph from input ids/embeddings to the final hidden states,
         excluding anything before input ids/embeddings and after
         the final hidden states.
+
+        Args:
+            exclude: Optional set of field names to omit from the
+                factors. Intended for cache-key consumers (e.g. the
+                FlashInfer autotune cache) where a field is known not
+                to affect the cached artifacts. Default: empty
+                (all fields hashed, as before).
+
         """
         ignored_factors = {
             "convert",
@@ -496,7 +504,7 @@ class ModelConfig:
             "interleave_mm_strings",
             "skip_mm_profiling",
             "mm_ipc_gpu_memory_gb",
-        }
+        } | exclude
 
         from vllm.config.utils import get_hash_factors, hash_factors
 

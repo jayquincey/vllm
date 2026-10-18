@@ -446,7 +446,11 @@ class VllmConfig:
     remaining requests are aborted once the timeout is reached.
     """
 
-    def compute_hash(self, include_version: bool = True) -> str:
+    def compute_hash(
+        self,
+        include_version: bool = True,
+        exclude: set[str] | frozenset[str] = frozenset(),
+    ) -> str:
         """WARNING: Whenever a new field is added to this config,
         ensure that it is included in the factors list if
         it affects the computation graph.
@@ -459,6 +463,11 @@ class VllmConfig:
 
         Args:
             include_version: Include the vLLM version in the hash.
+            exclude: Optional set of field names to omit from the
+                model-config and speculative-config factors (see
+                ModelConfig.compute_hash). Intended for cache-key
+                consumers where a field is known not to affect the
+                cached artifacts.
 
         """
         factors: list[Any] = []
@@ -470,7 +479,7 @@ class VllmConfig:
 
             vllm_factors.append(__version__)
         if self.model_config:
-            vllm_factors.append(self.model_config.compute_hash())
+            vllm_factors.append(self.model_config.compute_hash(exclude=exclude))
             if (
                 self.compilation_config
                 and getattr(self.compilation_config, "compile_mm_encoder", False)
@@ -517,7 +526,7 @@ class VllmConfig:
         else:
             vllm_factors.append("None")
         if self.speculative_config:
-            vllm_factors.append(self.speculative_config.compute_hash())
+            vllm_factors.append(self.speculative_config.compute_hash(exclude=exclude))
         else:
             vllm_factors.append("None")
         if self.structured_outputs_config:

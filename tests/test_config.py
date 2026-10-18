@@ -104,6 +104,51 @@ def test_dspark_adaptive_verification_separates_graph_cache():
     assert config.compute_hash() != fixed_hash
 
 
+def test_compute_hash_exclude_omits_max_model_len():
+    # The FlashInfer autotune cache key must stay stable when max_model_len
+    # auto-fits to a different value (e.g. a low --gpu-memory-utilization
+    # seed run vs. production). For MTP runs, max_model_len also appears in
+    # the speculative config's embedded draft model hash, so the exclusion
+    # must reach there, not just the top-level model config.
+    small_model = ModelConfig("Qwen/Qwen3-0.6B", max_model_len=1024)
+    large_model = ModelConfig("Qwen/Qwen3-0.6B", max_model_len=4096)
+
+    # Model config: max_model_len is a factor by default...
+    assert small_model.compute_hash() != large_model.compute_hash()
+    # ...but excludable.
+    assert small_model.compute_hash(
+        exclude={"max_model_len"}
+    ) == large_model.compute_hash(exclude={"max_model_len"})
+
+    spec_small = object.__new__(SpeculativeConfig)
+    spec_small.method = "mtp"
+    spec_small.draft_model_config = small_model
+    spec_small.enable_adaptive_verification = False
+    spec_large = object.__new__(SpeculativeConfig)
+    spec_large.method = "mtp"
+    spec_large.draft_model_config = large_model
+    spec_large.enable_adaptive_verification = False
+
+    # The embedded draft model hash carries max_model_len too.
+    assert spec_small.compute_hash() != spec_large.compute_hash()
+    assert spec_small.compute_hash(
+        exclude={"max_model_len"}
+    ) == spec_large.compute_hash(exclude={"max_model_len"})
+
+    small = VllmConfig(
+        model_config=small_model, device_config=DeviceConfig(device="cpu")
+    )
+    large = VllmConfig(
+        model_config=large_model, device_config=DeviceConfig(device="cpu")
+    )
+    assert small.compute_hash(include_version=False) != large.compute_hash(
+        include_version=False
+    )
+    assert small.compute_hash(
+        include_version=False, exclude={"max_model_len"}
+    ) == large.compute_hash(include_version=False, exclude={"max_model_len"})
+
+
 def _write_json(path: Path, value: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value), encoding="utf-8")

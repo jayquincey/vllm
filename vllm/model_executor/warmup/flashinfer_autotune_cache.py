@@ -31,7 +31,18 @@ def flashinfer_autotune_cache_hash(runner: "GPUModelRunner") -> str:
     cache_config = _normalize_cache_config_for_hash(vllm_config.cache_config)
     if cache_config is not vllm_config.cache_config:
         vllm_config = replace(vllm_config, cache_config=cache_config)
-    config_hash = vllm_config.compute_hash(include_version=False)
+    # max_model_len is excluded from the autotune cache key: cache entries
+    # are keyed by (op, shape) and the tuned shapes derive from cudagraph
+    # capture sizes and max_num_batched_tokens, never from max_model_len.
+    # Including it forks the cache directory whenever max_model_len
+    # auto-fits to a different value (e.g. a low --gpu-memory-utilization
+    # seed run vs. production), orphaning freshly tuned configs.
+    # It is excluded from every factor that carries it (the model config
+    # and the speculative config's embedded draft model config), so the
+    # key stays stable for MTP and non-MTP runs alike.
+    config_hash = vllm_config.compute_hash(
+        include_version=False, exclude={"max_model_len"}
+    )
     return hashlib.sha256(config_hash.encode()).hexdigest()
 
 
