@@ -1239,6 +1239,8 @@ def is_kv_cache_spec_uniform(kv_cache_spec: dict[str, KVCacheSpec]) -> bool:
     except AssertionError:
         return False
     return True
+
+
 def generate_lookahead_block_hash_extra_keys(
     request: Request,
     start_token_idx: int,
@@ -2210,12 +2212,9 @@ def _annotate_eagle_groups(
     drafter_prefix = names[-1].split(".", 1)[0]
     if drafter_prefix == first_prefix:
         return
-    drafter_layers = {
-        name for name in names if name.split(".", 1)[0] == drafter_prefix
-    }
+    drafter_layers = {name for name in names if name.split(".", 1)[0] == drafter_prefix}
     if any(
-        name.split(".", 1)[0] != first_prefix
-        for name in names[: -len(drafter_layers)]
+        name.split(".", 1)[0] != first_prefix for name in names[: -len(drafter_layers)]
     ):
         # More than two module prefixes in registration order: ambiguous.
         return

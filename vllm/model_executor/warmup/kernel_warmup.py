@@ -378,6 +378,8 @@ def _flashinfer_autotune_logits_gemm(
     for m in m_values:
         hidden = torch.randn((m, hidden_size), device=runner.device, dtype=dtype)
         model.compute_logits(hidden)
+
+
 def _flashinfer_deferred_moe_token_counts(
     runner: "GPUModelRunner",
 ) -> tuple[int, ...]:

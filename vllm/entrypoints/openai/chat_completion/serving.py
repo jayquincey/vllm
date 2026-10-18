@@ -128,7 +128,6 @@ def _dump_request(
         return None
 
 
-
 def _get_mm_token_counts(engine_input: EngineInput) -> dict[str, int]:
     """Sum per-modality placeholder tokens from ``mm_placeholders``.
 
